@@ -607,17 +607,16 @@ def format_charge_alert(
     eta_text = human_duration(eta)
     pace_text = human_rate(rate)
     if urgent or sample.percent <= lower:
-        title = "Battery Guard · 赶紧充电"
+        title = "🔌 赶紧充电"
         body = (
-            f"电量只剩 {sample.percent}%，已经踩到危险线。别再拖了，现在就插电。"
-            f" 按现在速度（约 {pace_text}）继续掉的话，会很快往更难看的区间走。"
+            f"只剩 {sample.percent}% 了⚠️ 别拖，马上插电。"
+            f" 按现在速度（约 {pace_text}）会继续往下掉。"
         )
     else:
-        title = "Battery Guard · 快该充电了"
-        body = f"电量 {sample.percent}%，离 {lower}% 还不远，按现在速度大约 {eta_text} 后会到下限。"
-        body += " 这次提醒是提前量提醒，给你留一点缓冲。"
+        title = "🪫 快充电"
+        body = f"现在 {sample.percent}% ，按这个速度大约 {eta_text} 会到 {lower}%。"
     if anomaly:
-        body += " 另外今天掉电明显比平时快，建议顺手检查高负载应用。"
+        body += " 掉电比平时快，顺手看看后台。"
     return title, body
 
 
@@ -629,16 +628,16 @@ def format_stop_alert(
     temp_upper_active: bool,
     urgent: bool = False,
 ) -> tuple[str, str]:
-    title = "Battery Guard · 赶紧拔电"
+    title = "🔋 赶紧拔电"
     if urgent:
-        body = f"电量已经到 {sample.percent}%，还在往上挂着。该拔就拔，别继续把电池晾在高电量区。"
+        body = f"已经 {sample.percent}% 了⚠️ 别继续挂着，拔电。"
     else:
-        title = "Battery Guard · 可以停止充电了"
-        body = f"电量已经到 {sample.percent}%，达到 {upper}% 上限。现在拔电最合适，可以少一些高电量停留。"
+        title = "🔋 该拔电了"
+        body = f"已经到 {sample.percent}% ，差不多了，拔电更舒服。"
     if temp_upper_active:
-        body += " 当前使用的是临时放宽上限模式。"
+        body += " 现在是临时上限模式。"
     elif rate is not None and rate > 0:
-        body += f" 最近充电速度大约 {human_rate(rate)}。"
+        body += f" 当前充电速度约 {human_rate(rate)}。"
     return title, body
 
 
@@ -685,10 +684,10 @@ def detect_fast_drain_alert(
         return None
     state["notifications"]["anomaly_fast_drain"] = {"cycle": cycle, "ts": sample.ts}
 
-    title = "Battery Guard · 今天掉电有点异常"
+    title = "⚠️ 掉电异常"
     body = (
-        f"当前掉电速度约 {human_rate(rate)}，比你这类时段的常见速度快了约 {ratio:.1f} 倍。"
-        " 如果你没在做重负载任务，建议看看浏览器标签页、会议软件或后台进程。"
+        f"当前掉电约 {human_rate(rate)}，比平时快 {ratio:.1f} 倍。"
+        " 如果没在跑重任务，看看浏览器或后台。"
     )
     return Alert(key="anomaly_fast_drain", title=title, body=body, severity="high")
 
@@ -745,8 +744,8 @@ def maybe_threshold_alerts(
             last_cycle = notifications.get("charge_started", {}).get("cycle")
             if last_cycle != charge_cycle:
                 notifications["charge_started"] = {"cycle": charge_cycle, "ts": sample.ts}
-                title = "Battery Guard · 充上啦 ✨🔋"
-                body = f"已经开始回血啦，当前电量 {sample.percent}%。这下舒服一点了，慢慢充就好。"
+                title = "✨ 充上啦 🔋"
+                body = f"开始回血啦～ 现在 {sample.percent}% ，舒服一点了，慢慢充就好 😊"
                 alerts.append(Alert(key="charge_started", title=title, body=body, severity="info"))
 
         if sample.percent >= upper:
@@ -1301,8 +1300,8 @@ def do_end_trip(args: argparse.Namespace) -> int:
 
 def do_test_alert(args: argparse.Namespace) -> int:
     sample = read_battery()
-    title = "Battery Guard · 测试提醒"
-    body = f"这是一次测试提醒。当前电量 {sample.percent}%，模式为 {normalize_mode(sample)}。"
+    title = "🧪 测试提醒"
+    body = f"当前电量 {sample.percent}% ，模式 {normalize_mode(sample)}。提醒链路正常。"
     alert = Alert(key="test_alert", title=title, body=body, severity="info")
     decision = GuardDecision(
         sample=sample,
