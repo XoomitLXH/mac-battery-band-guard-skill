@@ -271,6 +271,7 @@ def update_cycles(state: dict[str, Any], sample: BatterySample) -> None:
     notifications = state.setdefault("notifications", {})
     last_mode = state.get("last_mode")
     mode = normalize_mode(sample)
+    state["previous_mode"] = last_mode
     if mode != last_mode:
         if mode == "discharging":
             cycles["discharge"] = int(cycles.get("discharge", 0)) + 1
@@ -704,6 +705,7 @@ def maybe_threshold_alerts(
     reset_high: int,
     temp_upper_active: bool,
     anomaly: bool,
+    previous_mode: str | None,
 ) -> list[Alert]:
     alerts: list[Alert] = []
     notifications = state.setdefault("notifications", {})
@@ -737,13 +739,22 @@ def maybe_threshold_alerts(
                 title, body = format_charge_alert(sample, lower, soon, rate, eta, anomaly)
                 alerts.append(Alert(key="charge_soon", title=title, body=body, severity="normal"))
 
-    if mode in {"charging", "charged"} and sample.percent >= upper:
-        cycle = int(cycles.get("charge", 0))
-        urgent_high = sample.percent >= upper
-        if should_repeat_notification(notifications, "stop_at_upper", cycle, sample.ts, 20 * 60):
-            notifications["stop_at_upper"] = {"cycle": cycle, "ts": sample.ts}
-            title, body = format_stop_alert(sample, upper, rate, temp_upper_active, urgent=urgent_high)
-            alerts.append(Alert(key="stop_at_upper", title=title, body=body, severity="high" if urgent_high else "normal"))
+    if mode in {"charging", "charged"}:
+        charge_cycle = int(cycles.get("charge", 0))
+        if previous_mode == "discharging":
+            last_cycle = notifications.get("charge_started", {}).get("cycle")
+            if last_cycle != charge_cycle:
+                notifications["charge_started"] = {"cycle": charge_cycle, "ts": sample.ts}
+                title = "Battery Guard · 充上啦 ✨🔋"
+                body = f"已经开始回血啦，当前电量 {sample.percent}%。这下舒服一点了，慢慢充就好。"
+                alerts.append(Alert(key="charge_started", title=title, body=body, severity="info"))
+
+        if sample.percent >= upper:
+            urgent_high = sample.percent >= upper
+            if should_repeat_notification(notifications, "stop_at_upper", charge_cycle, sample.ts, 20 * 60):
+                notifications["stop_at_upper"] = {"cycle": charge_cycle, "ts": sample.ts}
+                title, body = format_stop_alert(sample, upper, rate, temp_upper_active, urgent=urgent_high)
+                alerts.append(Alert(key="stop_at_upper", title=title, body=body, severity="high" if urgent_high else "normal"))
 
     return alerts
 
@@ -909,6 +920,7 @@ def build_decision(state: dict[str, Any], sample: BatterySample, args: argparse.
         reset_high=settings["reset_high"],
         temp_upper_active=bool(settings.get("temp_upper_active")),
         anomaly=fast_drain_alert is not None,
+        previous_mode=state.get("previous_mode"),
     )
     summary_alerts = maybe_summary_alerts(
         state=state,
