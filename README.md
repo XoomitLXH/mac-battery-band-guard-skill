@@ -1,59 +1,74 @@
 # mac-battery-band-guard-skill
 
-An adaptive macOS battery monitoring skill for keeping your Mac in the healthier **40%–80%** charging band.
+An adaptive macOS battery monitoring skill for keeping your Mac in a healthier charging band without noisy fixed-interval polling.
 
-It does **not** poll at a fixed high frequency. Instead, it estimates recent charge/discharge speed from real battery history and decides when it needs to check again.
+The project started as a 40%–80% battery reminder, then grew into a fuller battery assistant with:
+
+- ETA prediction
+- unusual drain detection
+- more natural reminder wording
+- daily and weekly summaries
+- profile-based behavior
+- quiet hours
+- temporary travel overrides
+- habit-based suggestions
+- local notifications and Feishu push
 
 ## What it does
 
-- reminds you to **charge soon** when the battery approaches the lower band
-- reminds you to **charge now** when it falls below the floor
-- reminds you to **stop charging** when it reaches the upper band
-- adapts the next check interval from recent usage instead of using a noisy fixed loop
-- supports:
-  - local macOS notifications
-  - optional **Feishu push notifications**
-  - background installation via **LaunchAgent**
+### Stage 1 improvements
 
-## Default behavior
+- reminds you to **charge soon** near the lower band
+- reminds you to **charge now** below the floor
+- reminds you to **stop charging** at or above the upper ceiling
+- predicts how long it may take to hit the next threshold
+- detects **unusual battery drain** compared to recent history
+- uses more useful, human-readable reminder text
+- can produce **daily** and **weekly** battery summaries
 
-- lower floor: **40%**
-- early low-battery reminder: **45%**
-- upper ceiling: **80%**
-- low reminder reset: after rising back above **50%**
-- stop-charging reminder reset: after dropping below **75%** in a later discharge cycle
-- adaptive interval window: **5 to 180 minutes**
+### Stage 2 improvements
 
-## Why this is adaptive instead of frequent polling
+- supports profiles:
+  - `balanced`
+  - `work`
+  - `outing`
+  - `night`
+- supports **quiet hours**
+- supports a **temporary upper limit override** for travel or special days
 
-The monitor keeps a small local history of battery samples and uses that to estimate how quickly the battery is currently:
+### Stage 3 improvements
 
-- discharging
-- charging
+- learns from recent plug-in / unplug patterns
+- generates habit-based suggestions
+- offers lightweight long-term battery behavior guidance
 
-From that slope, it computes an approximate ETA to the next important threshold:
+## Why it is adaptive instead of frequent polling
 
-- ETA to **40%** while discharging
-- ETA to **80%** while charging
+The monitor keeps a local history of battery samples and estimates current charge or discharge speed from real use.
 
-Then it chooses a longer or shorter sleep interval accordingly:
+It then uses that estimate to predict ETA to the next meaningful threshold:
+
+- ETA to the floor while discharging
+- ETA to the ceiling while charging
+
+That lets it adjust the next check interval automatically:
 
 - far from thresholds → check less often
-- close to thresholds → check more often
-- heavy use naturally shortens future intervals
-- light use naturally stretches them out
+- near thresholds → check more often
+- heavy use → shorter intervals
+- light use → longer intervals
 
-So the monitor follows real usage patterns without reading app-level activity or hammering the system.
+So it follows your actual battery behavior instead of running a noisy, rigid polling loop.
 
 ## Reminder channels
 
 ### 1. Local macOS notifications
 
-By default, reminders are shown with `osascript` / Notification Center.
+By default, reminders are shown through Notification Center via `osascript`.
 
 ### 2. Feishu push notifications
 
-If you pass a Feishu target, the same reminder is also sent through OpenClaw to your Feishu chat.
+If you pass a Feishu target, the same reminder can also be sent through OpenClaw to your Feishu chat.
 
 Example:
 
@@ -62,7 +77,7 @@ python3 mac-battery-band-guard/scripts/battery_guard.py install-launch-agent \
   --feishu-target ou_xxx
 ```
 
-You can also run Feishu-only mode:
+Feishu-only mode:
 
 ```bash
 python3 mac-battery-band-guard/scripts/battery_guard.py install-launch-agent \
@@ -70,18 +85,59 @@ python3 mac-battery-band-guard/scripts/battery_guard.py install-launch-agent \
   --disable-local-notify
 ```
 
-## Repository layout
+## Profiles
 
-```text
-mac-battery-band-guard-skill/
-├── README.md
-├── dist/
-│   └── mac-battery-band-guard.skill
-└── mac-battery-band-guard/
-    ├── SKILL.md
-    └── scripts/
-        └── battery_guard.py
+Profiles let the monitor behave differently without forcing you to manually tune every threshold.
+
+- `balanced` — default everyday behavior
+- `work` — slightly tighter monitoring and earlier low warning
+- `outing` — more travel-friendly ceiling
+- `night` — default quiet-hours behavior
+
+Persist a profile:
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py set-mode balanced
+python3 mac-battery-band-guard/scripts/battery_guard.py set-mode outing
+python3 mac-battery-band-guard/scripts/battery_guard.py set-mode night
 ```
+
+## Temporary charging ceiling override
+
+Useful for travel days or special cases:
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py set-temp-upper 95 --hours 12
+python3 mac-battery-band-guard/scripts/battery_guard.py clear-temp-upper
+```
+
+## Summaries and suggestions
+
+### Daily / weekly summaries
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py summary --period day
+python3 mac-battery-band-guard/scripts/battery_guard.py summary --period week
+```
+
+Send a summary through the configured reminder channels:
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py summary --period day --send --feishu-target ou_xxx
+```
+
+### Habit-based suggestions
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py suggest
+```
+
+Typical suggestion categories:
+
+- you usually plug in too late
+- you usually unplug too high
+- discharge speed has been unusually high
+- charging has recently looked slower than expected
 
 ## Main script usage
 
@@ -118,9 +174,14 @@ python3 mac-battery-band-guard/scripts/battery_guard.py uninstall-launch-agent
 
 ## Important flags
 
+- `--profile <balanced|work|outing|night>`
 - `--lower <int>` — lower battery floor
 - `--soon <int>` — early low-battery reminder threshold
 - `--upper <int>` — upper stop-charging threshold
+- `--quiet-hours <HH:MM-HH:MM>`
+- `--daily-summary-hour <0-23>`
+- `--weekly-summary-weekday <0-6>`
+- `--weekly-summary-hour <0-23>`
 - `--min-interval <minutes>` — shortest adaptive interval
 - `--max-interval <minutes>` — longest adaptive interval
 - `--print-only` — compute but send no reminders
@@ -143,14 +204,27 @@ Typical files:
 - `guard.stdout.log`
 - `guard.stderr.log`
 
+## Repository layout
+
+```text
+mac-battery-band-guard-skill/
+├── README.md
+├── dist/
+│   └── mac-battery-band-guard.skill
+└── mac-battery-band-guard/
+    ├── SKILL.md
+    └── scripts/
+        └── battery_guard.py
+```
+
 ## OpenClaw integration
 
-This repository contains both:
+This repository includes both:
 
 - the **skill source** (`mac-battery-band-guard/`)
-- the packaged distributable file (`dist/mac-battery-band-guard.skill`)
+- the packaged distributable artifact (`dist/mac-battery-band-guard.skill`)
 
-If you want the current OpenClaw workspace to discover the skill directly, place the skill folder under:
+If you want OpenClaw to discover the skill directly in the current workspace, place it under:
 
 ```text
 <workspace>/skills/mac-battery-band-guard/
@@ -158,11 +232,16 @@ If you want the current OpenClaw workspace to discover the skill directly, place
 
 ## Current status
 
-This version already includes:
+This version now includes:
 
 - adaptive monitoring
+- ETA-aware reminders
+- anomaly drain detection
 - cycle-based de-duplication
-- hysteresis resets
+- daily and weekly summaries
+- profiles and quiet hours
+- temporary upper-limit override
+- habit-based suggestions
 - local notifications
 - Feishu push integration
 - LaunchAgent background mode
