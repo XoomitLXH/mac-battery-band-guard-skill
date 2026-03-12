@@ -1091,7 +1091,9 @@ def do_report(args: argparse.Namespace) -> int:
     settings = effective_settings(args, state, sample)
     today_start = datetime(now_local().year, now_local().month, now_local().day).timestamp()
     report = {
-        "profile": current_profile(args, state),
+        "configured_profile": configured_profile(args, state),
+        "active_profile": settings["profile"],
+        "profile_source": settings.get("profile_source"),
         "current_sample": asdict(sample),
         "today": summarize_window(history, today_start, now_ts, settings["upper"]),
         "week": summarize_window(history, now_ts - 7 * 24 * 3600, now_ts, settings["upper"]),
@@ -1107,16 +1109,22 @@ def do_report(args: argparse.Namespace) -> int:
 
 def do_set_profile(args: argparse.Namespace) -> int:
     state = load_state(args.state_file)
-    if args.profile not in PROFILE_PRESETS:
+    if args.profile not in VALID_PROFILES:
         raise SystemExit(f"Unknown profile: {args.profile}")
-    preset = PROFILE_PRESETS[args.profile]
     settings = state.setdefault("settings", {})
     settings["profile"] = args.profile
-    settings["quiet_hours"] = preset.get("quiet_hours")
-    settings["summary_hour"] = preset.get("summary_hour", settings.get("summary_hour", 21))
-    settings["weekly_summary_weekday"] = preset.get(
-        "weekly_summary_weekday", settings.get("weekly_summary_weekday", 6)
-    )
+    if args.profile in PROFILE_PRESETS:
+        preset = PROFILE_PRESETS[args.profile]
+        settings["quiet_hours"] = preset.get("quiet_hours")
+        settings["summary_hour"] = preset.get("summary_hour", settings.get("summary_hour", 21))
+        settings["weekly_summary_weekday"] = preset.get(
+            "weekly_summary_weekday", settings.get("weekly_summary_weekday", 6)
+        )
+    else:
+        settings.setdefault("auto_day_profile", "work")
+        settings.setdefault("auto_quiet_profile", "night")
+        if settings.get("quiet_hours") is None:
+            settings["quiet_hours"] = PROFILE_PRESETS["night"].get("quiet_hours")
     save_state(args.state_file, state)
     print(json.dumps({"ok": True, "profile": args.profile, "settings": settings}, ensure_ascii=False))
     return 0
@@ -1128,6 +1136,26 @@ def do_set_quiet_hours(args: argparse.Namespace) -> int:
     state.setdefault("settings", {})["quiet_hours"] = args.quiet_hours
     save_state(args.state_file, state)
     print(json.dumps({"ok": True, "quiet_hours": args.quiet_hours}, ensure_ascii=False))
+    return 0
+
+
+
+def do_set_auto_profiles(args: argparse.Namespace) -> int:
+    state = load_state(args.state_file)
+    settings = state.setdefault("settings", {})
+    settings["auto_day_profile"] = args.day_profile
+    settings["auto_quiet_profile"] = args.quiet_profile
+    save_state(args.state_file, state)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "auto_day_profile": args.day_profile,
+                "auto_quiet_profile": args.quiet_profile,
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
@@ -1168,7 +1196,7 @@ def add_shared_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reset-high", type=int, default=75)
     parser.add_argument("--min-interval", type=int, default=DEFAULT_MIN_INTERVAL)
     parser.add_argument("--max-interval", type=int, default=DEFAULT_MAX_INTERVAL)
-    parser.add_argument("--profile", default="default", choices=sorted(PROFILE_PRESETS.keys()))
+    parser.add_argument("--profile", default="default", choices=VALID_PROFILES)
     parser.add_argument("--quiet-hours")
     parser.add_argument("--summary-hour", type=int, default=21)
     parser.add_argument("--weekly-summary-weekday", type=int, default=6)
@@ -1210,7 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
     report.set_defaults(func=do_report)
 
     set_profile = sub.add_parser("set-profile", help="Switch the active profile")
-    set_profile.add_argument("profile", choices=sorted(PROFILE_PRESETS.keys()))
+    set_profile.add_argument("profile", choices=VALID_PROFILES)
     set_profile.add_argument("--state-file", type=Path, default=STATE_FILE)
     set_profile.set_defaults(func=do_set_profile)
 
@@ -1218,6 +1246,12 @@ def build_parser() -> argparse.ArgumentParser:
     set_quiet.add_argument("quiet_hours")
     set_quiet.add_argument("--state-file", type=Path, default=STATE_FILE)
     set_quiet.set_defaults(func=do_set_quiet_hours)
+
+    set_auto_profiles = sub.add_parser("set-auto-profiles", help="Choose which profiles auto mode uses for day and quiet hours")
+    set_auto_profiles.add_argument("--day-profile", required=True, choices=sorted(PROFILE_PRESETS.keys()))
+    set_auto_profiles.add_argument("--quiet-profile", required=True, choices=sorted(PROFILE_PRESETS.keys()))
+    set_auto_profiles.add_argument("--state-file", type=Path, default=STATE_FILE)
+    set_auto_profiles.set_defaults(func=do_set_auto_profiles)
 
     temp_upper = sub.add_parser("set-temp-upper", help="Temporarily raise the upper threshold")
     temp_upper.add_argument("value", type=int)

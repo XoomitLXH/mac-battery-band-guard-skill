@@ -75,8 +75,9 @@ python3 scripts/battery_guard.py report
 
 ### Stage 2 behavior
 
-- profile switching: `default`, `work`, `travel`, `night`
+- profile switching: `default`, `work`, `travel`, `night`, `auto`
 - quiet hours, especially useful in `night` mode
+- automatic day/night switching when `auto` is enabled
 - temporary upper override for one-off travel / long unplugged sessions
 
 ### Stage 3 behavior
@@ -119,6 +120,13 @@ Switch profile:
 
 ```bash
 python3 scripts/battery_guard.py set-profile night
+python3 scripts/battery_guard.py set-profile auto
+```
+
+When `auto` is enabled, the script can use one profile for daytime and another for quiet hours:
+
+```bash
+python3 scripts/battery_guard.py set-auto-profiles --day-profile work --quiet-profile night
 ```
 
 ## Temporary upper override

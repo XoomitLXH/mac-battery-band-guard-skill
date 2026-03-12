@@ -39,8 +39,9 @@ It does **not** poll at a fixed high frequency. Instead, it watches recent batte
 
 ### Lifestyle features
 
-- profiles: `default`, `work`, `travel`, `night`
+- profiles: `default`, `work`, `travel`, `night`, `auto`
 - quiet hours
+- automatic day/night switching in `auto` mode
 - temporary upper-limit override (for travel / special days)
 
 ### Delivery
@@ -62,6 +63,13 @@ Allows a higher charging ceiling so the Mac can leave home with more battery.
 
 ### `night`
 Adds quiet-hours behavior and a slightly more conservative low-battery posture.
+
+### `auto`
+Uses one profile during the day and another during quiet hours, so you do not need to switch manually.
+Default auto mapping:
+
+- day → `work`
+- quiet hours → `night`
 
 ## How the adaptive algorithm works
 
@@ -137,6 +145,15 @@ python3 mac-battery-band-guard/scripts/battery_guard.py report
 python3 mac-battery-band-guard/scripts/battery_guard.py set-profile work
 python3 mac-battery-band-guard/scripts/battery_guard.py set-profile travel
 python3 mac-battery-band-guard/scripts/battery_guard.py set-profile night
+python3 mac-battery-band-guard/scripts/battery_guard.py set-profile auto
+```
+
+### Configure auto mode
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py set-auto-profiles \
+  --day-profile work \
+  --quiet-profile night
 ```
 
 ### Set quiet hours
