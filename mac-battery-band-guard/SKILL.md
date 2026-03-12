@@ -7,7 +7,7 @@ description: Adaptive macOS battery-band monitoring for keeping a Mac between 40
 
 Keep a Mac in the 40%-80% range without checking too often.
 
-Use the bundled script to read battery state with `pmset`, persist a small history, estimate recent charge/discharge speed, choose the next sleep interval, and emit local macOS notifications only when a threshold transition matters.
+Use the bundled script to read battery state with `pmset`, persist a small history, estimate recent charge/discharge speed, choose the next sleep interval, and emit reminders only when a threshold transition matters. Reminder delivery supports local macOS notifications and optional Feishu push via OpenClaw.
 
 ## Workflow
 
@@ -28,6 +28,13 @@ Install the per-user LaunchAgent:
 
 ```bash
 python3 scripts/battery_guard.py install-launch-agent
+```
+
+Install it with Feishu push to a direct chat/open_id:
+
+```bash
+python3 scripts/battery_guard.py install-launch-agent \
+  --feishu-target ou_xxx
 ```
 
 Inspect saved state later:
@@ -76,6 +83,13 @@ Emit only meaningful reminders:
 
 Avoid repeat spam by relying on the persisted cycle counters and hysteresis resets.
 
+Delivery options:
+
+- Local macOS notification: enabled by default.
+- Feishu push: enabled when `--feishu-target <open_id>` is provided.
+- Local-only mode: keep defaults.
+- Feishu-only mode: pass both `--feishu-target <open_id>` and `--disable-local-notify`.
+
 ## Script Reference
 
 ### `scripts/battery_guard.py once`
@@ -84,7 +98,10 @@ Sample once, update history, compute the next interval, optionally notify, and p
 
 Useful flags:
 
-- `--print-only` — compute without showing a macOS notification
+- `--print-only` — compute without sending any reminder
+- `--disable-local-notify` — suppress local macOS notifications
+- `--feishu-target <open_id>` — send reminder messages to a Feishu DM target through OpenClaw
+- `--feishu-account <id>` — optional OpenClaw Feishu account id when multiple Feishu accounts exist
 - `--lower <int>`
 - `--soon <int>`
 - `--upper <int>`

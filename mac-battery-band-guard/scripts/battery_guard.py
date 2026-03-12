@@ -375,6 +375,43 @@ def send_notification(title: str, body: str) -> None:
     subprocess.run(["osascript", "-e", script], check=False)
 
 
+def send_feishu_message(target: str, title: str, body: str, account: str | None = None) -> bool:
+    message = f"🔋 {title}\n{body}"
+    command = [
+        "openclaw",
+        "message",
+        "send",
+        "--channel",
+        "feishu",
+        "--target",
+        target,
+        "--message",
+        message,
+        "--json",
+    ]
+    if account:
+        command.extend(["--account", account])
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr or result.stdout)
+        return False
+    return True
+
+
+def dispatch_notifications(args: argparse.Namespace, decision: GuardDecision) -> None:
+    if not decision.notify or not decision.title or not decision.body or args.print_only:
+        return
+    if not args.disable_local_notify:
+        send_notification(decision.title, decision.body)
+    if args.feishu_target:
+        send_feishu_message(
+            target=args.feishu_target,
+            title=decision.title,
+            body=decision.body,
+            account=args.feishu_account,
+        )
+
+
 def state_snapshot(state: dict[str, Any], decision: GuardDecision) -> dict[str, Any]:
     return {
         "sample": asdict(decision.sample),
@@ -412,8 +449,7 @@ def do_once(args: argparse.Namespace) -> int:
     state["updated_at"] = sample.ts
     save_state(args.state_file, state)
 
-    if decision.notify and not args.print_only and decision.title and decision.body:
-        send_notification(decision.title, decision.body)
+    dispatch_notifications(args, decision)
 
     print(json.dumps(state_snapshot(state, decision), ensure_ascii=False, indent=2))
     return 0
@@ -442,8 +478,7 @@ def do_run(args: argparse.Namespace) -> int:
         snapshot = state_snapshot(state, decision)
         print(json.dumps(snapshot, ensure_ascii=False), flush=True)
 
-        if decision.notify and not args.print_only and decision.title and decision.body:
-            send_notification(decision.title, decision.body)
+        dispatch_notifications(args, decision)
 
         time.sleep(decision.next_check_minutes * 60)
 
@@ -477,7 +512,11 @@ def launch_agent_plist(args: argparse.Namespace) -> dict[str, Any]:
             str(args.min_interval),
             "--max-interval",
             str(args.max_interval),
-        ] + (["--print-only"] if args.print_only else []),
+        ]
+        + (["--print-only"] if args.print_only else [])
+        + (["--disable-local-notify"] if args.disable_local_notify else [])
+        + (["--feishu-target", args.feishu_target] if args.feishu_target else [])
+        + (["--feishu-account", args.feishu_account] if args.feishu_account else []),
         "RunAtLoad": True,
         "KeepAlive": True,
         "StandardOutPath": str(stdout_path),
@@ -525,6 +564,9 @@ def add_shared_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-interval", type=int, default=DEFAULT_MIN_INTERVAL)
     parser.add_argument("--max-interval", type=int, default=DEFAULT_MAX_INTERVAL)
     parser.add_argument("--print-only", action="store_true")
+    parser.add_argument("--disable-local-notify", action="store_true")
+    parser.add_argument("--feishu-target")
+    parser.add_argument("--feishu-account")
 
 
 def build_parser() -> argparse.ArgumentParser:
