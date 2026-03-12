@@ -594,12 +594,23 @@ def effective_settings(args: argparse.Namespace, state: dict[str, Any], sample: 
 
 
 
-def format_charge_alert(sample: BatterySample, lower: int, soon: int, rate: float | None, eta: float | None, anomaly: bool) -> tuple[str, str]:
+def format_charge_alert(
+    sample: BatterySample,
+    lower: int,
+    soon: int,
+    rate: float | None,
+    eta: float | None,
+    anomaly: bool,
+    urgent: bool = False,
+) -> tuple[str, str]:
     eta_text = human_duration(eta)
     pace_text = human_rate(rate)
-    if sample.percent <= lower:
-        title = "Battery Guard · 现在该充电了"
-        body = f"电量 {sample.percent}%，已经低于 {lower}% 下限。按现在速度（约 {pace_text}）继续掉的话会更快逼近危险区，建议现在插电。"
+    if urgent or sample.percent <= lower:
+        title = "Battery Guard · 赶紧充电"
+        body = (
+            f"电量只剩 {sample.percent}%，已经踩到危险线。别再拖了，现在就插电。"
+            f" 按现在速度（约 {pace_text}）继续掉的话，会很快往更难看的区间走。"
+        )
     else:
         title = "Battery Guard · 快该充电了"
         body = f"电量 {sample.percent}%，离 {lower}% 还不远，按现在速度大约 {eta_text} 后会到下限。"
@@ -610,14 +621,40 @@ def format_charge_alert(sample: BatterySample, lower: int, soon: int, rate: floa
 
 
 
-def format_stop_alert(sample: BatterySample, upper: int, rate: float | None, temp_upper_active: bool) -> tuple[str, str]:
-    title = "Battery Guard · 可以停止充电了"
-    body = f"电量已经到 {sample.percent}%，达到 {upper}% 上限。现在拔电最合适，可以少一些高电量停留。"
+def format_stop_alert(
+    sample: BatterySample,
+    upper: int,
+    rate: float | None,
+    temp_upper_active: bool,
+    urgent: bool = False,
+) -> tuple[str, str]:
+    title = "Battery Guard · 赶紧拔电"
+    if urgent:
+        body = f"电量已经到 {sample.percent}%，还在往上挂着。该拔就拔，别继续把电池晾在高电量区。"
+    else:
+        title = "Battery Guard · 可以停止充电了"
+        body = f"电量已经到 {sample.percent}%，达到 {upper}% 上限。现在拔电最合适，可以少一些高电量停留。"
     if temp_upper_active:
         body += " 当前使用的是临时放宽上限模式。"
     elif rate is not None and rate > 0:
         body += f" 最近充电速度大约 {human_rate(rate)}。"
     return title, body
+
+
+
+def should_repeat_notification(
+    notifications: dict[str, Any],
+    key: str,
+    cycle: int,
+    now_ts: float,
+    cooldown_seconds: int,
+) -> bool:
+    entry = notifications.get(key, {})
+    last_cycle = entry.get("cycle")
+    last_ts = float(entry.get("ts", 0) or 0)
+    if last_cycle != cycle:
+        return True
+    return (now_ts - last_ts) >= cooldown_seconds
 
 
 
@@ -686,11 +723,12 @@ def maybe_threshold_alerts(
             eta = (sample.percent - lower) / abs(rate)
         cycle = int(cycles.get("discharge", 0))
 
-        if sample.percent <= lower:
-            last_cycle = notifications.get("charge_now", {}).get("cycle")
-            if last_cycle != cycle:
+        urgent_floor = max(lower, 41)
+        urgent_low = sample.percent <= urgent_floor
+        if urgent_low:
+            if should_repeat_notification(notifications, "charge_now", cycle, sample.ts, 15 * 60):
                 notifications["charge_now"] = {"cycle": cycle, "ts": sample.ts}
-                title, body = format_charge_alert(sample, lower, soon, rate, eta, anomaly)
+                title, body = format_charge_alert(sample, lower, soon, rate, eta, anomaly, urgent=True)
                 alerts.append(Alert(key="charge_now", title=title, body=body, severity="critical"))
         elif sample.percent <= soon:
             last_cycle = notifications.get("charge_soon", {}).get("cycle")
@@ -701,11 +739,11 @@ def maybe_threshold_alerts(
 
     if mode in {"charging", "charged"} and sample.percent >= upper:
         cycle = int(cycles.get("charge", 0))
-        last_cycle = notifications.get("stop_at_upper", {}).get("cycle")
-        if last_cycle != cycle:
+        urgent_high = sample.percent >= upper
+        if should_repeat_notification(notifications, "stop_at_upper", cycle, sample.ts, 20 * 60):
             notifications["stop_at_upper"] = {"cycle": cycle, "ts": sample.ts}
-            title, body = format_stop_alert(sample, upper, rate, temp_upper_active)
-            alerts.append(Alert(key="stop_at_upper", title=title, body=body, severity="normal"))
+            title, body = format_stop_alert(sample, upper, rate, temp_upper_active, urgent=urgent_high)
+            alerts.append(Alert(key="stop_at_upper", title=title, body=body, severity="high" if urgent_high else "normal"))
 
     return alerts
 

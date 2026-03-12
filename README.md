@@ -23,7 +23,9 @@ It does **not** poll at a fixed high frequency. Instead, it watches recent batte
 
 - reminds you to **charge soon** as you approach the lower band
 - reminds you to **charge now** when you drop below the floor
+- becomes more aggressive below **41%** with harsher wording and repeated nudges
 - reminds you to **stop charging** when you hit the upper ceiling
+- becomes more aggressive above the charging ceiling with repeated unplug reminders
 
 ### Smarter battery behavior
 

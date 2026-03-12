@@ -68,6 +68,7 @@ python3 scripts/battery_guard.py report
 ### Stage 1 behavior
 
 - threshold reminders near the lower band and upper band
+- more aggressive repeated reminders below 41% and above the active upper ceiling
 - ETA-based reminder text
 - anomaly detection for unusually fast discharge
 - daily summary notification
