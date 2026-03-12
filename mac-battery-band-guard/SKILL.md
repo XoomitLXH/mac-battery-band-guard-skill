@@ -1,36 +1,44 @@
 ---
 name: mac-battery-band-guard
-description: Adaptive macOS battery-band monitoring for keeping a Mac between healthier charge limits with low-noise reminders, ETA prediction, anomaly detection, summaries, and profile-based behavior. Use when creating, installing, debugging, or tuning a Mac battery monitor that should warn near a floor, warn at/above a charging ceiling, adapt check intervals from recent battery behavior, send local/Feishu reminders, support quiet hours, and generate battery-health suggestions.
+description: Adaptive macOS battery-band monitoring for keeping a Mac between healthy charging limits with low-noise reminders, ETA prediction, anomaly detection, daily/weekly summaries, mode switching, quiet hours, temporary upper-limit overrides, and Feishu push delivery. Use when creating, installing, tuning, or debugging a Mac battery helper that should learn from recent charge/discharge behavior instead of polling at a fixed cadence.
 ---
 
 # Mac Battery Band Guard
 
-Keep a Mac in a healthier battery band without noisy fixed-interval polling.
+Keep a Mac in a healthier charging band without turning it into a noisy polling daemon.
 
-Use the bundled script to read battery state with `pmset`, store lightweight history, estimate current charge or discharge speed, adapt the next sleep interval, detect unusual drain, send reminders, and generate summaries plus habit-based suggestions.
+Use the bundled script to:
 
-## Core capabilities
+- sample battery state via `pmset`
+- persist a rolling history
+- estimate current charge/discharge speed
+- predict ETA to threshold crossings
+- detect unusually fast battery drain
+- send smarter reminders locally and/or through Feishu
+- produce daily and weekly battery summaries
+- switch between profiles like `default`, `work`, `travel`, and `night`
+- apply temporary upper-limit overrides for travel or one-off heavy-use days
 
-- Adaptive check intervals from real battery behavior
-- ETA-aware low-battery and stop-charging reminders
-- More natural reminder wording
-- Unusual drain detection
-- Daily and weekly summaries
-- Profiles: `balanced`, `work`, `outing`, `night`
-- Quiet hours
-- Temporary charging-ceiling override
-- Habit-based suggestions from recent history
-- Local macOS notifications and optional Feishu push through OpenClaw
+## Core idea
 
-## Quick start
+Do not run a dumb fixed-interval checker unless the user explicitly asks for one.
 
-Run a dry sample:
+This skill should stay adaptive:
+
+- long sleeps when far from important thresholds
+- short sleeps when the current slope says the Mac is approaching 40% or 80% soon
+- richer reminders when the battery is behaving abnormally
+- summaries and habit suggestions built from persisted history
+
+## Quick Start
+
+Dry run one sample:
 
 ```bash
 python3 scripts/battery_guard.py once --print-only
 ```
 
-Install the background LaunchAgent:
+Install background monitoring:
 
 ```bash
 python3 scripts/battery_guard.py install-launch-agent
@@ -43,76 +51,134 @@ python3 scripts/battery_guard.py install-launch-agent \
   --feishu-target ou_xxx
 ```
 
-Inspect current state:
+Show current state:
 
 ```bash
 python3 scripts/battery_guard.py status
 ```
 
-## Profiles
-
-Use profiles for different situations instead of hand-tuning every threshold.
-
-- `balanced` — normal 40–80 behavior
-- `work` — similar band, slightly earlier low warning and tighter cadence
-- `outing` — travel-friendly profile with a higher ceiling
-- `night` — normal band plus default quiet hours (`23:00-08:00`)
-
-Persist a profile:
+Show learned report / summary metrics:
 
 ```bash
-python3 scripts/battery_guard.py set-mode balanced
-python3 scripts/battery_guard.py set-mode outing
-python3 scripts/battery_guard.py set-mode night
+python3 scripts/battery_guard.py report
 ```
 
-## Temporary overrides
+## What the upgraded version supports
 
-Temporarily raise or lower the charging ceiling for a limited time:
+### Stage 1 behavior
+
+- threshold reminders near the lower band and upper band
+- ETA-based reminder text
+- anomaly detection for unusually fast discharge
+- daily summary notification
+- weekly summary notification with habit suggestions
+
+### Stage 2 behavior
+
+- profile switching: `default`, `work`, `travel`, `night`
+- quiet hours, especially useful in `night` mode
+- temporary upper override for one-off travel / long unplugged sessions
+
+### Stage 3 behavior
+
+- lightweight habit learning from persisted history
+- long-term suggestions in reports and weekly summaries
+- profile-aware recommendations such as “switch to night mode” or “you often stay above the upper band too long”
+
+## Reminder delivery
+
+Supported channels:
+
+- local macOS Notification Center
+- optional Feishu push via OpenClaw
+
+Quiet-hours behavior:
+
+- critical alerts still surface
+- lower-priority alerts can become Feishu-only during quiet hours
+
+## Profiles
+
+### `default`
+
+Balanced 40–80 behavior.
+
+### `work`
+
+Similar charging band, slightly more workday-oriented summary timing.
+
+### `travel`
+
+Allows a higher ceiling by default so the machine can be taken out with more charge.
+
+### `night`
+
+Adds quiet-hours behavior and a slightly more conservative low-battery posture.
+
+Switch profile:
+
+```bash
+python3 scripts/battery_guard.py set-profile night
+```
+
+## Temporary upper override
+
+Use this when the user wants one-off flexibility without permanently changing the profile.
+
+Raise the upper limit temporarily:
 
 ```bash
 python3 scripts/battery_guard.py set-temp-upper 95 --hours 12
+```
+
+Clear it:
+
+```bash
 python3 scripts/battery_guard.py clear-temp-upper
 ```
 
-Use this for travel days or one-off exceptions instead of permanently changing the main profile.
+## Quiet hours
 
-## Summaries and suggestions
-
-Generate summaries:
+Set quiet hours with a simple `HH-HH` format:
 
 ```bash
-python3 scripts/battery_guard.py summary --period day
-python3 scripts/battery_guard.py summary --period week
+python3 scripts/battery_guard.py set-quiet-hours 23-08
 ```
 
-Send a summary through the active reminder channels:
+## Important commands
 
-```bash
-python3 scripts/battery_guard.py summary --period day --send --feishu-target ou_xxx
-```
+### `once`
 
-Generate habit-based recommendations:
+Sample battery, update history, compute alerts, optionally notify, and print a JSON snapshot.
 
-```bash
-python3 scripts/battery_guard.py suggest
-```
+Useful flags:
 
-## Important flags
-
-- `--profile <balanced|work|outing|night>`
-- `--lower <int>`
-- `--soon <int>`
-- `--upper <int>`
-- `--quiet-hours <HH:MM-HH:MM>`
-- `--daily-summary-hour <0-23>`
-- `--weekly-summary-weekday <0-6>` (`0=Mon`, `6=Sun`)
-- `--weekly-summary-hour <0-23>`
+- `--print-only`
 - `--disable-local-notify`
 - `--feishu-target <open_id>`
 - `--feishu-account <id>`
-- `--print-only`
-- `--state-file <path>`
+- `--profile <default|work|travel|night>`
+- `--quiet-hours <HH-HH>`
+- `--summary-hour <0-23>`
+- `--weekly-summary-weekday <0-6>`
+
+### `run`
+
+Run continuously with adaptive sleep intervals. This is what the LaunchAgent uses.
+
+### `install-launch-agent`
+
+Install the per-user LaunchAgent and seed initial runtime settings.
+
+### `report`
+
+Print a structured summary including:
+
+- today’s tracked stats
+- last 7 days summary stats
+- current profile
+- active overrides
+- learned suggestions
 
 ## Files written by the script
 
@@ -122,20 +188,27 @@ State directory:
 ~/Library/Application Support/mac-battery-band-guard/
 ```
 
-Typical files:
+Important files:
 
-- `state.json` — battery history, notifications, summaries, profile state, temporary overrides
+- `state.json`
 - `guard.stdout.log`
 - `guard.stderr.log`
 
-## Guidance
+## Tuning guidance
 
-Prefer profiles over over-customization.
+Prefer profiles and temporary overrides before changing raw thresholds.
 
-Only tune raw thresholds when the user explicitly wants a different battery philosophy. For most cases:
+Good reasons to tune raw thresholds directly:
 
-- `balanced` for everyday use
-- `outing` for travel or long unplugged sessions
-- `night` when you want fewer late alerts
+- the user has a very different preferred battery band
+- they want much earlier low-battery warnings
+- they want much tighter or looser adaptive intervals
 
-Do not replace the adaptive loop with a tight fixed poll unless the user explicitly asks for that tradeoff.
+Most users should first try:
+
+- `set-profile travel`
+- `set-profile night`
+- `set-temp-upper 95 --hours 12`
+- `set-quiet-hours 23-08`
+
+Keep the system adaptive unless the user explicitly asks for fixed polling.
