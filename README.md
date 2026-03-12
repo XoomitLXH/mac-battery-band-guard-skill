@@ -156,6 +156,26 @@ python3 mac-battery-band-guard/scripts/battery_guard.py set-auto-profiles \
   --quiet-profile night
 ```
 
+### One-shot travel mode
+
+Turn on temporary travel behavior for a limited time and let it expire automatically:
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py start-trip --hours 12 --upper 95 --set-profile-auto
+```
+
+End it early:
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py end-trip
+```
+
+### Test the reminder pipeline
+
+```bash
+python3 mac-battery-band-guard/scripts/battery_guard.py test-alert --feishu-target ou_xxx
+```
+
 ### Set quiet hours
 
 ```bash

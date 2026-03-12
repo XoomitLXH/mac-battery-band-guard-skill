@@ -94,6 +94,8 @@ DEFAULT_STATE = {
     "overrides": {
         "temp_upper": None,
         "temp_upper_expires_at": None,
+        "travel_mode_expires_at": None,
+        "travel_target_upper": None,
     },
     "summary": {
         "last_daily_date": None,
@@ -482,6 +484,9 @@ def configured_profile(args: argparse.Namespace, state: dict[str, Any]) -> str:
 
 def resolve_active_profile(args: argparse.Namespace, state: dict[str, Any], ts: float) -> tuple[str, str]:
     profile = configured_profile(args, state)
+    travel = active_travel_mode(state, ts)
+    if travel is not None:
+        return "travel", "temporary-travel"
     if profile != "auto":
         return profile, "configured"
 
@@ -511,6 +516,22 @@ def active_temp_upper(state: dict[str, Any], now_ts: float) -> int | None:
         overrides["temp_upper_expires_at"] = None
         return None
     return int(value)
+
+
+
+def active_travel_mode(state: dict[str, Any], now_ts: float) -> dict[str, Any] | None:
+    overrides = state.setdefault("overrides", {})
+    expires_at = overrides.get("travel_mode_expires_at")
+    if expires_at is None:
+        return None
+    if float(expires_at) <= now_ts:
+        overrides["travel_mode_expires_at"] = None
+        overrides["travel_target_upper"] = None
+        return None
+    return {
+        "expires_at": float(expires_at),
+        "target_upper": overrides.get("travel_target_upper"),
+    }
 
 
 
@@ -546,11 +567,18 @@ def effective_settings(args: argparse.Namespace, state: dict[str, Any], sample: 
     }
 
     temp_upper = active_temp_upper(state, sample.ts)
+    travel = active_travel_mode(state, sample.ts)
+    if travel and travel.get("target_upper"):
+        temp_upper = max(int(travel["target_upper"]), temp_upper or 0)
+
     if temp_upper is not None and temp_upper > result["upper"]:
         result["upper"] = temp_upper
         result["temp_upper_active"] = True
     else:
         result["temp_upper_active"] = False
+
+    result["travel_mode_active"] = travel is not None
+    result["travel_mode_expires_at"] = travel.get("expires_at") if travel else None
 
     if selected_profile == "default":
         # Keep explicit CLI thresholds as the default-profile fallback.
@@ -1187,6 +1215,62 @@ def do_clear_temp_upper(args: argparse.Namespace) -> int:
 
 
 
+def do_start_trip(args: argparse.Namespace) -> int:
+    state = load_state(args.state_file)
+    overrides = state.setdefault("overrides", {})
+    overrides["travel_mode_expires_at"] = time.time() + (args.hours * 3600)
+    overrides["travel_target_upper"] = args.upper
+    if args.set_profile_auto:
+        state.setdefault("settings", {})["profile"] = "auto"
+    save_state(args.state_file, state)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "travel_mode_expires_at": overrides["travel_mode_expires_at"],
+                "travel_target_upper": args.upper,
+                "profile": state.get("settings", {}).get("profile"),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+
+def do_end_trip(args: argparse.Namespace) -> int:
+    state = load_state(args.state_file)
+    overrides = state.setdefault("overrides", {})
+    overrides["travel_mode_expires_at"] = None
+    overrides["travel_target_upper"] = None
+    save_state(args.state_file, state)
+    print(json.dumps({"ok": True}, ensure_ascii=False))
+    return 0
+
+
+
+def do_test_alert(args: argparse.Namespace) -> int:
+    sample = read_battery()
+    title = "Battery Guard · 测试提醒"
+    body = f"这是一次测试提醒。当前电量 {sample.percent}%，模式为 {normalize_mode(sample)}。"
+    alert = Alert(key="test_alert", title=title, body=body, severity="info")
+    decision = GuardDecision(
+        sample=sample,
+        mode=normalize_mode(sample),
+        rate_pct_per_hour=None,
+        baseline_rate_pct_per_hour=None,
+        next_check_minutes=0,
+        alerts=[alert],
+        debug={"test": True},
+        profile="test",
+        effective_thresholds={},
+    )
+    dispatch_notifications(args, decision)
+    print(json.dumps({"ok": True, "title": title, "body": body}, ensure_ascii=False))
+    return 0
+
+
+
 def add_shared_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state-file", type=Path, default=STATE_FILE)
     parser.add_argument("--lower", type=int, default=40)
@@ -1263,6 +1347,21 @@ def build_parser() -> argparse.ArgumentParser:
     clear_temp = sub.add_parser("clear-temp-upper", help="Clear temporary upper-threshold override")
     clear_temp.add_argument("--state-file", type=Path, default=STATE_FILE)
     clear_temp.set_defaults(func=do_clear_temp_upper)
+
+    start_trip = sub.add_parser("start-trip", help="Temporarily enable travel behavior and higher charge ceiling")
+    start_trip.add_argument("--hours", type=float, default=12)
+    start_trip.add_argument("--upper", type=int, default=95)
+    start_trip.add_argument("--set-profile-auto", action="store_true")
+    start_trip.add_argument("--state-file", type=Path, default=STATE_FILE)
+    start_trip.set_defaults(func=do_start_trip)
+
+    end_trip = sub.add_parser("end-trip", help="End temporary travel behavior immediately")
+    end_trip.add_argument("--state-file", type=Path, default=STATE_FILE)
+    end_trip.set_defaults(func=do_end_trip)
+
+    test_alert = sub.add_parser("test-alert", help="Send a test notification through configured channels")
+    add_shared_args(test_alert)
+    test_alert.set_defaults(func=do_test_alert)
 
     return parser
 

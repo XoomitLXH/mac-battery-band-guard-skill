@@ -129,6 +129,19 @@ When `auto` is enabled, the script can use one profile for daytime and another f
 python3 scripts/battery_guard.py set-auto-profiles --day-profile work --quiet-profile night
 ```
 
+For travel days, enable a temporary travel override that auto-expires:
+
+```bash
+python3 scripts/battery_guard.py start-trip --hours 12 --upper 95 --set-profile-auto
+python3 scripts/battery_guard.py end-trip
+```
+
+To test reminder delivery without waiting for a threshold:
+
+```bash
+python3 scripts/battery_guard.py test-alert --feishu-target ou_xxx
+```
+
 ## Temporary upper override
 
 Use this when the user wants one-off flexibility without permanently changing the profile.
