@@ -74,6 +74,7 @@ PROFILE_PRESETS: dict[str, dict[str, Any]] = {
         "max_interval": 180,
     },
 }
+VALID_PROFILES = sorted([*PROFILE_PRESETS.keys(), "auto"])
 
 DEFAULT_STATE = {
     "history": [],
@@ -87,6 +88,8 @@ DEFAULT_STATE = {
         "summary_hour": 21,
         "weekly_summary_weekday": 6,
         "quiet_feishu_only": True,
+        "auto_day_profile": "work",
+        "auto_quiet_profile": "night",
     },
     "overrides": {
         "temp_upper": None,
@@ -471,9 +474,29 @@ def choose_interval(
 
 
 
-def current_profile(args: argparse.Namespace, state: dict[str, Any]) -> str:
+def configured_profile(args: argparse.Namespace, state: dict[str, Any]) -> str:
     profile = state.get("settings", {}).get("profile") or args.profile
-    return profile if profile in PROFILE_PRESETS else "default"
+    return profile if profile in VALID_PROFILES else "default"
+
+
+
+def resolve_active_profile(args: argparse.Namespace, state: dict[str, Any], ts: float) -> tuple[str, str]:
+    profile = configured_profile(args, state)
+    if profile != "auto":
+        return profile, "configured"
+
+    settings = state.get("settings", {})
+    quiet_hours = settings.get("quiet_hours") or PROFILE_PRESETS["night"].get("quiet_hours")
+    day_profile = settings.get("auto_day_profile") or "work"
+    quiet_profile = settings.get("auto_quiet_profile") or "night"
+    if day_profile not in PROFILE_PRESETS:
+        day_profile = "work"
+    if quiet_profile not in PROFILE_PRESETS:
+        quiet_profile = "night"
+
+    if in_quiet_hours(ts, quiet_hours):
+        return quiet_profile, "auto-quiet"
+    return day_profile, "auto-day"
 
 
 
@@ -492,8 +515,9 @@ def active_temp_upper(state: dict[str, Any], now_ts: float) -> int | None:
 
 
 def effective_settings(args: argparse.Namespace, state: dict[str, Any], sample: BatterySample) -> dict[str, Any]:
-    profile = current_profile(args, state)
-    preset = PROFILE_PRESETS[profile].copy()
+    selected_profile, profile_source = resolve_active_profile(args, state, sample.ts)
+    configured = configured_profile(args, state)
+    preset = PROFILE_PRESETS[selected_profile].copy()
     settings = state.setdefault("settings", {})
     quiet_hours = settings.get("quiet_hours")
     summary_hour = settings.get("summary_hour")
@@ -501,7 +525,9 @@ def effective_settings(args: argparse.Namespace, state: dict[str, Any], sample: 
     quiet_feishu_only = settings.get("quiet_feishu_only", True)
 
     result = {
-        "profile": profile,
+        "profile": selected_profile,
+        "configured_profile": configured,
+        "profile_source": profile_source,
         "lower": int(preset["lower"]),
         "soon": int(preset["soon"]),
         "upper": int(preset["upper"]),
@@ -515,6 +541,8 @@ def effective_settings(args: argparse.Namespace, state: dict[str, Any], sample: 
             weekly_summary_weekday if weekly_summary_weekday is not None else preset.get("weekly_summary_weekday", 6)
         ),
         "quiet_feishu_only": bool(quiet_feishu_only),
+        "auto_day_profile": settings.get("auto_day_profile", "work"),
+        "auto_quiet_profile": settings.get("auto_quiet_profile", "night"),
     }
 
     temp_upper = active_temp_upper(state, sample.ts)
@@ -524,7 +552,7 @@ def effective_settings(args: argparse.Namespace, state: dict[str, Any], sample: 
     else:
         result["temp_upper_active"] = False
 
-    if profile == "default":
+    if selected_profile == "default":
         # Keep explicit CLI thresholds as the default-profile fallback.
         result["lower"] = args.lower
         result["soon"] = args.soon
@@ -836,6 +864,8 @@ def build_decision(state: dict[str, Any], sample: BatterySample, args: argparse.
         {
             "baseline_rate_pct_per_hour": baseline_rate,
             "profile": settings["profile"],
+            "configured_profile": settings.get("configured_profile"),
+            "profile_source": settings.get("profile_source"),
             "quiet_hours": settings.get("quiet_hours"),
             "temp_upper_active": settings.get("temp_upper_active", False),
         }
@@ -855,7 +885,10 @@ def build_decision(state: dict[str, Any], sample: BatterySample, args: argparse.
 
 
 def send_notification(title: str, body: str) -> None:
-    script = f'display notification {json.dumps(body)} with title {json.dumps(title)}'
+    script = (
+        f'display notification {json.dumps(body, ensure_ascii=False)} '
+        f'with title {json.dumps(title, ensure_ascii=False)}'
+    )
     subprocess.run(["osascript", "-e", script], check=False)
 
 
